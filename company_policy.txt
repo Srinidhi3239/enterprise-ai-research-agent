@@ -1,0 +1,1 @@
+Acme Corp requires all microservices to use PostgreSQL with pgvector for document indexing. Multi-tenant data must be isolated using tenant_id metadata tags to ensure strict enterprise data security.
