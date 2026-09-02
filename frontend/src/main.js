@@ -1,376 +1,391 @@
-import './style.css';
+/**
+ * Enterprise AI Research Agent - Frontend Controller
+ * Local sovereign RAG workbench with TTS voice briefing and multi-agent consensus.
+ */
 
-let indexedFiles = ['company_policy.txt (Default)'];
-let lastUploadedFile = 'company_policy.txt';
-let currentReportData = null;
+const API_BASE_URL = 'http://127.0.0.1:8000';
 
-document.querySelector('#app').innerHTML = `
-  <header class="app-header">
-    <div class="brand-group">
-      <div class="brand-logo">⚡</div>
-      <div>
-        <span class="brand-title">Enterprise AI Research Agent</span>
-      </div>
-    </div>
+let activeReportData = null;
+let isSpeaking = false;
 
-    <div class="theme-switcher-bar">
-      <button class="theme-btn active" data-set-theme="blueprint">Blueprint</button>
-      <button class="theme-btn" data-set-theme="matrix">Matrix</button>
-      <button class="theme-btn" data-set-theme="amber">Amber</button>
-      <button class="theme-btn" data-set-theme="linear">Linear</button>
-    </div>
-  </header>
-
-  <div class="layout-grid">
-    <aside>
-      <div class="side-card">
-        <div class="side-title">📁 Vector Knowledge Base</div>
-        <div id="docListContainer">
-          <div class="doc-badge">
-            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px;">company_policy.txt</span>
-            <span style="color: var(--accent-main); font-family: var(--font-mono); font-size: 10px;">Ready</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="side-card">
-        <div class="side-title">⚡ Instant Research Presets</div>
-        <div class="chip-list">
-          <button class="prompt-chip" data-q="What are the data security and metadata rules for microservices?">
-            🔒 Microservices Security & Tenant Isolation
-          </button>
-          <button class="prompt-chip" data-q="What vector database and indexing standard is required?">
-            📊 Vector DB & PostgreSQL Standards
-          </button>
-          <button class="prompt-chip" data-q="Summarize end-to-end architectural guidelines and risk factors.">
-            🏗️ Architectural Risk Assessment
-          </button>
-        </div>
-      </div>
-
-      <div class="side-card" style="font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); line-height: 1.6;">
-        <div class="side-title">⚙️ Engine Telemetry</div>
-        <div>Model: <span style="color: var(--text-main);">MiniLM-L6-v2</span></div>
-        <div>Schema: <span style="color: var(--accent-main);">Pydantic Deterministic</span></div>
-        <div>Vector Engine: <span style="color: var(--accent-main);">ChromaDB Local</span></div>
-      </div>
-    </aside>
-
-    <main>
-      <div class="dropzone-compact" id="dropzone">
-        <input type="file" id="fileInput" style="display: none;" accept=".txt,.pdf" />
-        <div style="font-size: 22px; margin-bottom: 4px;">📥</div>
-        <div style="font-size: 13px; font-weight: 600;">Drop enterprise documents (PDF / TXT) to vectorize</div>
-        <div style="font-size: 11px; color: var(--text-dim); margin-top: 2px;">Local embedding generation with zero external data leaks</div>
-        <div id="uploadStatus" style="margin-top: 8px; font-family: var(--font-mono); font-size: 12px;"></div>
-      </div>
-
-      <form class="query-bar" id="researchForm">
-        <input
-          type="text"
-          id="queryInput"
-          class="query-input"
-          placeholder="Ask a question or select a preset from the sidebar..."
-        />
-        <select id="industrySelect" class="query-select">
-          <option value="Enterprise IT">Enterprise IT</option>
-          <option value="Healthcare Systems">Healthcare Systems</option>
-          <option value="Financial Operations">Financial Operations</option>
-        </select>
-        <button type="submit" id="submitBtn" class="btn-synthesize">Synthesize</button>
-      </form>
-
-      <div id="reportContainer"></div>
-    </main>
-  </div>
-
-  <div id="modalRoot"></div>
-`;
-
-// Theme Switcher Handlers
-const themeButtons = document.querySelectorAll('.theme-btn');
-themeButtons.forEach((btn) => {
-  btn.addEventListener('click', () => {
-    themeButtons.forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active');
-    const selectedTheme = btn.getAttribute('data-set-theme');
-    document.documentElement.setAttribute('data-theme', selectedTheme);
+// ==========================================================================
+// 1. Theme Engine
+// ==========================================================================
+function initThemeEngine() {
+  const themeButtons = document.querySelectorAll('.theme-btn');
+  const savedTheme = localStorage.getItem('agent-theme') || 'blueprint';
+  
+  document.documentElement.setAttribute('data-theme', savedTheme);
+  themeButtons.forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.theme === savedTheme);
+    btn.addEventListener('click', () => {
+      const theme = btn.dataset.theme;
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('agent-theme', theme);
+      themeButtons.forEach(b => b.classList.toggle('active', b.dataset.theme === theme));
+    });
   });
-});
+}
 
-// UI Elements
-const dropzone = document.querySelector('#dropzone');
-const fileInput = document.querySelector('#fileInput');
-const uploadStatus = document.querySelector('#uploadStatus');
-const docListContainer = document.querySelector('#docListContainer');
-const researchForm = document.querySelector('#researchForm');
-const queryInput = document.querySelector('#queryInput');
-const industrySelect = document.querySelector('#industrySelect');
-const submitBtn = document.querySelector('#submitBtn');
-const reportContainer = document.querySelector('#reportContainer');
-const promptChips = document.querySelectorAll('.prompt-chip');
-const modalRoot = document.querySelector('#modalRoot');
+// ==========================================================================
+// 2. Home & Reset Controller
+// ==========================================================================
+function resetToHome() {
+  // Clear search input
+  const queryInput = document.getElementById('query-input');
+  if (queryInput) queryInput.value = '';
 
-// Preset Query Trigger
-promptChips.forEach((chip) => {
-  chip.addEventListener('click', () => {
-    queryInput.value = chip.getAttribute('data-q');
-    researchForm.dispatchEvent(new Event('submit'));
-  });
-});
-
-// File Ingestion
-dropzone.addEventListener('click', () => fileInput.click());
-dropzone.addEventListener('dragover', (e) => e.preventDefault());
-dropzone.addEventListener('drop', (e) => {
-  e.preventDefault();
-  if (e.dataTransfer.files.length) {
-    fileInput.files = e.dataTransfer.files;
-    handleUpload(e.dataTransfer.files[0]);
+  // Hide & clear report container
+  const reportContainer = document.getElementById('report-container');
+  if (reportContainer) {
+    reportContainer.innerHTML = '';
+    reportContainer.style.display = 'none';
   }
-});
-fileInput.addEventListener('change', (e) => {
-  if (e.target.files.length) handleUpload(e.target.files[0]);
-});
 
-async function handleUpload(file) {
-  lastUploadedFile = file.name;
+  // Cancel speech synthesis
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.cancel();
+    isSpeaking = false;
+  }
+
+  activeReportData = null;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ==========================================================================
+// 3. Document Ingestion (Dropzone)
+// ==========================================================================
+function initDropzone() {
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('file-input');
+
+  dropzone.addEventListener('click', () => fileInput.click());
+
+  dropzone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropzone.classList.add('dragover');
+  });
+
+  ['dragleave', 'dragend'].forEach(type => {
+    dropzone.addEventListener(type, () => dropzone.classList.remove('dragover'));
+  });
+
+  dropzone.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+    if (e.dataTransfer.files.length > 0) {
+      await handleFileUpload(e.dataTransfer.files[0]);
+    }
+  });
+
+  fileInput.addEventListener('change', async () => {
+    if (fileInput.files.length > 0) {
+      await handleFileUpload(fileInput.files[0]);
+    }
+  });
+}
+
+async function handleFileUpload(file) {
+  const dropzoneTitle = document.querySelector('.dropzone-title');
+  const originalTitle = dropzoneTitle.textContent;
+  dropzoneTitle.textContent = `Vectorizing ${file.name}...`;
+
   const formData = new FormData();
   formData.append('file', file);
 
-  uploadStatus.innerHTML = `<span>Vectorizing ${file.name}...</span>`;
-
   try {
-    const res = await fetch('http://127.0.0.1:8000/api/upload', {
+    const res = await fetch(`${API_BASE_URL}/api/upload`, {
       method: 'POST',
-      body: formData,
+      body: formData
     });
+
+    if (!res.ok) throw new Error('Upload failed');
     const data = await res.json();
-    uploadStatus.innerHTML = `<span style="color: var(--accent-main);">✓ Indexed "${data.filename}" (${data.chunks_indexed} chunks)</span>`;
-    
-    if (!indexedFiles.includes(data.filename)) {
-      indexedFiles.push(data.filename);
-      const newBadge = document.createElement('div');
-      newBadge.className = 'doc-badge';
-      newBadge.innerHTML = `
-        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px;">${data.filename}</span>
-        <span style="color: var(--accent-main); font-family: var(--font-mono); font-size: 10px;">${data.chunks_indexed} Chunks</span>
-      `;
-      docListContainer.appendChild(newBadge);
-    }
+
+    // Update Knowledge Base List
+    const kbList = document.getElementById('knowledge-base-list');
+    kbList.innerHTML = `
+      <div class="kb-item">
+        <span class="kb-filename">${data.filename}</span>
+        <span class="badge-status ready">Indexed (${data.chunks_indexed} chunks)</span>
+      </div>
+    `;
+    dropzoneTitle.textContent = `✅ Successfully indexed ${file.name}`;
+    setTimeout(() => { dropzoneTitle.textContent = originalTitle; }, 3000);
   } catch (err) {
-    uploadStatus.innerHTML = `<span style="color: #ef4444">Upload failed. Check backend.</span>`;
+    console.error(err);
+    dropzoneTitle.textContent = `❌ Failed to vectorize document.`;
+    setTimeout(() => { dropzoneTitle.textContent = originalTitle; }, 3000);
   }
 }
 
-// Research Execution
-researchForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  let query = queryInput.value.trim();
-  if (!query) {
-    query = `Summarize and extract key requirements from ${lastUploadedFile}`;
-  }
+// ==========================================================================
+// 4. Research Synthesis Logic
+// ==========================================================================
+async function runSynthesis() {
+  const queryInput = document.getElementById('query-input');
+  const industrySelect = document.getElementById('industry-select');
+  const btnSynthesize = document.getElementById('btn-synthesize');
+  const reportContainer = document.getElementById('report-container');
 
-  const industry = industrySelect.value;
-  submitBtn.disabled = true;
-  submitBtn.innerText = 'Synthesizing...';
+  const query = queryInput.value.trim();
+  if (!query) return;
+
+  btnSynthesize.disabled = true;
+  btnSynthesize.textContent = 'Synthesizing...';
 
   try {
-    const res = await fetch('http://127.0.0.1:8000/api/research', {
+    const response = await fetch(`${API_BASE_URL}/api/research`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, target_industry: industry }),
+      body: JSON.stringify({
+        query: query,
+        target_industry: industrySelect.value
+      })
     });
-    const data = await res.json();
-    currentReportData = data;
-    renderReport(data);
-  } catch (err) {
-    alert('Synthesis error. Ensure backend is running.');
-  } finally {
-    submitBtn.disabled = false;
-    submitBtn.innerText = 'Synthesize';
-  }
-});
 
-function renderReport(report) {
-  const score = report.confidence_score || 94.2;
+    if (!response.ok) throw new Error('Synthesis failed');
+    const report = await response.json();
+    activeReportData = report;
+
+    renderReport(report);
+  } catch (err) {
+    console.error(err);
+    alert('Failed to synthesize research report. Ensure the backend is running at http://127.0.0.1:8000');
+  } finally {
+    btnSynthesize.disabled = false;
+    btnSynthesize.textContent = 'Synthesize';
+  }
+}
+
+function renderReport(data) {
+  const reportContainer = document.getElementById('report-container');
+
+  const consensusHTML = data.agent_consensus.map(agent => `
+    <div class="persona-card">
+      <div class="persona-header">
+        <div class="persona-role">${agent.icon} ${agent.role}</div>
+        <span class="status-badge verified">${agent.verdict}</span>
+      </div>
+      <div class="persona-rationale">${agent.rationale}</div>
+      <div class="score-bar-bg">
+        <div class="score-bar-fill" style="width: ${agent.score}%"></div>
+      </div>
+      <div class="score-meta">
+        <span>Confidence Score</span>
+        <span class="highlight">${agent.score}%</span>
+      </div>
+    </div>
+  `).join('');
+
+  const findingsHTML = data.findings.map((finding, idx) => `
+    <div class="finding-item">
+      <div class="finding-title">${finding.title}</div>
+      <div class="finding-analysis">${finding.analysis}</div>
+      ${finding.citations.map(c => `
+        <button class="citation-chip" data-quote="${encodeURIComponent(c.quote)}" data-source="${c.source_id}">
+          🔍 Source: ${c.source_id}
+        </button>
+      `).join('')}
+    </div>
+  `).join('');
 
   reportContainer.innerHTML = `
-    <div class="report-view">
-      <div class="report-header-row">
+    <div class="report-card">
+      <div class="report-header">
         <div>
-          <span style="font-family: var(--font-mono); font-size: 11px; color: var(--accent-main); text-transform: uppercase;">Synthesized Intelligence Report</span>
-          <h2 style="font-size: 18px; color: var(--text-main); margin-top: 2px;">${report.topic}</h2>
+          <div class="report-tag">SYNTHESIZED INTELLIGENCE REPORT</div>
+          <div class="report-title">${data.topic}</div>
         </div>
-        
-        <div class="toolbar-actions">
-          <button id="voiceBtn" class="tool-btn">🔊 Read Brief</button>
-          <button id="exportMdBtn" class="tool-btn">📄 Export .MD</button>
-          <span style="background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--accent-status); font-family: var(--font-mono); font-size: 11px; padding: 6px 10px; border-radius: 6px;">
-            Match: ${score}%
-          </span>
+        <div class="report-actions">
+          <button id="btn-read-brief" class="action-btn">
+            <span id="speaker-icon">🔊</span> Read Brief
+          </button>
+          <button id="btn-export-md" class="action-btn">
+            📄 Export .MD
+          </button>
+          <div class="match-chip">Match: ${data.confidence_score}%</div>
         </div>
       </div>
 
-      <div id="audioWaveBox" style="display: none;" class="audio-bar">
-        <div class="voice-wave">
-          <div class="wave-bar"></div>
-          <div class="wave-bar"></div>
-          <div class="wave-bar"></div>
-          <div class="wave-bar"></div>
-        </div>
-        <span style="font-size: 12px; font-family: var(--font-mono); color: var(--accent-main);">Synthesizing voice briefing...</span>
+      <div class="brief-box">
+        <strong>EXECUTIVE INTELLIGENCE BRIEF:</strong><br>
+        ${data.executive_summary}
       </div>
 
       <div>
-        <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px;">Executive Intelligence Brief</div>
-        <div class="exec-box">
-          ${report.executive_summary}
-        </div>
+        <div class="section-tag" style="margin-bottom: 10px;">🤖 TRI-PERSONA AGENT CONSENSUS MATRIX</div>
+        <div class="consensus-matrix">${consensusHTML}</div>
       </div>
 
       <div>
-        <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); text-transform: uppercase; margin-bottom: 10px;">🤖 Tri-Persona Agent Consensus Matrix</div>
-        <div class="persona-grid">
-          ${(report.agent_consensus || []).map(p => `
-            <div class="persona-card">
-              <div class="persona-header">
-                <span style="font-weight: 700; font-size: 13px; color: var(--text-main); display: flex; align-items: center; gap: 6px;">
-                  <span>${p.icon}</span> ${p.role}
-                </span>
-                <span class="persona-badge">${p.verdict}</span>
-              </div>
-              <p style="color: var(--text-muted); font-size: 12px; line-height: 1.4; margin: 2px 0;">${p.rationale}</p>
-              <div>
-                <div style="display: flex; justify-content: space-between; font-size: 11px; font-family: var(--font-mono); color: var(--text-dim); margin-bottom: 4px;">
-                  <span>Confidence Score</span>
-                  <span style="color: var(--accent-main); font-weight: 700;">${p.score}%</span>
-                </div>
-                <div class="persona-score-bar">
-                  <div class="persona-score-fill" style="width: ${p.score}%;"></div>
-                </div>
-              </div>
-            </div>
-          `).join('')}
-        </div>
+        <div class="section-tag" style="margin-bottom: 10px;">GROUNDED CITATIONS (CLICK TO INSPECT VECTOR CHUNK)</div>
+        <div class="findings-list">${findingsHTML}</div>
       </div>
 
-      <div>
-        <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); text-transform: uppercase; margin-bottom: 10px;">Grounded Citations (Click to Inspect Vector Chunk)</div>
-        <div class="finding-grid">
-          ${report.findings
-            .map(
-              (f) => `
-              <div class="finding-item">
-                <div style="font-weight: 700; color: var(--text-main); font-size: 14px;">${f.title}</div>
-                <p style="color: var(--text-muted); font-size: 13px; margin: 6px 0; line-height: 1.5;">${f.analysis}</p>
-                <div>
-                  ${f.citations
-                    .map(
-                      (c) => `<span class="citation-chip" onclick="window.inspectSource('${encodeURIComponent(c.source_id)}', '${encodeURIComponent(c.quote)}')">🔍 Source: ${c.source_id}</span>`
-                    )
-                    .join('')}
-                </div>
-              </div>`
-            )
-            .join('')}
+      <div class="recs-risks-grid">
+        <div class="info-column">
+          <div class="column-title" style="color: var(--accent-color);">📋 STRATEGIC RECOMMENDATIONS</div>
+          <ul>
+            ${data.strategic_recommendations.map(r => `<li>${r}</li>`).join('')}
+          </ul>
         </div>
-      </div>
-
-      <div>
-        <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); text-transform: uppercase; margin-bottom: 10px;">Strategic Directives</div>
-        <div>
-          ${report.strategic_recommendations
-            .map((rec) => `<div class="rec-badge">${rec}</div>`)
-            .join('')}
-        </div>
-      </div>
-
-      <div>
-        <div style="font-family: var(--font-mono); font-size: 11px; color: var(--accent-danger); text-transform: uppercase; margin-bottom: 10px;">⚠️ Identified Gaps & Risk Assessment</div>
-        <div class="risk-grid">
-          ${(report.identified_risks_or_gaps || [])
-            .map((risk) => `<div class="risk-card"><strong>[RISK-ALERT]</strong> ${risk}</div>`)
-            .join('')}
+        <div class="info-column">
+          <div class="column-title" style="color: var(--warning-color);">⚠️ IDENTIFIED RISKS & GAPS</div>
+          <ul>
+            ${data.identified_risks_or_gaps.map(g => `<li>${g}</li>`).join('')}
+          </ul>
         </div>
       </div>
     </div>
   `;
 
-  document.querySelector('#voiceBtn').addEventListener('click', toggleVoice);
-  document.querySelector('#exportMdBtn').addEventListener('click', exportMarkdown);
+  reportContainer.style.display = 'block';
+
+  // Attach dynamic event listeners
+  document.getElementById('btn-read-brief').addEventListener('click', toggleVoiceBriefing);
+  document.getElementById('btn-export-md').addEventListener('click', exportMarkdownReport);
+
+  document.querySelectorAll('.citation-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      openChunkModal(btn.dataset.source, decodeURIComponent(btn.dataset.quote));
+    });
+  });
 }
 
-function toggleVoice() {
-  if (!currentReportData) return;
-  if (window.speechSynthesis.speaking) {
+// ==========================================================================
+// 5. Voice Executive Briefing (Web Speech API)
+// ==========================================================================
+function toggleVoiceBriefing() {
+  if (!('speechSynthesis' in window) || !activeReportData) return;
+
+  const readBtn = document.getElementById('btn-read-brief');
+
+  if (isSpeaking) {
     window.speechSynthesis.cancel();
-    document.querySelector('#audioWaveBox').style.display = 'none';
-    document.querySelector('#voiceBtn').innerText = '🔊 Read Brief';
-  } else {
-    const utterance = new SpeechSynthesisUtterance(currentReportData.executive_summary);
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    utterance.onend = () => {
-      document.querySelector('#audioWaveBox').style.display = 'none';
-      document.querySelector('#voiceBtn').innerText = '🔊 Read Brief';
-    };
-    window.speechSynthesis.speak(utterance);
-    document.querySelector('#audioWaveBox').style.display = 'flex';
-    document.querySelector('#voiceBtn').innerText = '⏹ Stop Audio';
+    isSpeaking = false;
+    readBtn.innerHTML = `<span>🔊</span> Read Brief`;
+    return;
   }
+
+  const textToRead = `${activeReportData.topic}. ${activeReportData.executive_summary}`;
+  const utterance = new SpeechSynthesisUtterance(textToRead);
+  utterance.rate = 1.0;
+  utterance.pitch = 1.0;
+
+  utterance.onstart = () => {
+    isSpeaking = true;
+    readBtn.innerHTML = `
+      <div class="audio-visualizer">
+        <div class="wave-bar"></div>
+        <div class="wave-bar"></div>
+        <div class="wave-bar"></div>
+      </div>
+      Speaking...
+    `;
+  };
+
+  utterance.onend = () => {
+    isSpeaking = false;
+    readBtn.innerHTML = `<span>🔊</span> Read Brief`;
+  };
+
+  utterance.onerror = () => {
+    isSpeaking = false;
+    readBtn.innerHTML = `<span>🔊</span> Read Brief`;
+  };
+
+  window.speechSynthesis.speak(utterance);
 }
 
-function exportMarkdown() {
-  if (!currentReportData) return;
-  const md = `# ${currentReportData.topic}
-*Target Industry: Enterprise IT*
+// ==========================================================================
+// 6. Vector Chunk Inspector Modal
+// ==========================================================================
+function openChunkModal(source, quote) {
+  document.getElementById('modal-source').textContent = source;
+  document.getElementById('modal-quote-text').textContent = quote;
+  document.getElementById('chunk-modal').style.display = 'flex';
+}
+
+function initModal() {
+  const modal = document.getElementById('chunk-modal');
+  const closeBtn = document.getElementById('modal-close');
+
+  closeBtn.addEventListener('click', () => { modal.style.display = 'none'; });
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) modal.style.display = 'none';
+  });
+}
+
+// ==========================================================================
+// 7. Markdown Exporter
+// ==========================================================================
+function exportMarkdownReport() {
+  if (!activeReportData) return;
+
+  const md = `# ${activeReportData.topic}
+**Generated by Enterprise AI Research Agent**
+*Confidence Score: ${activeReportData.confidence_score}%*
+
+---
 
 ## Executive Summary
-${currentReportData.executive_summary}
+${activeReportData.executive_summary}
 
-## Agent Consensus Review
-${(currentReportData.agent_consensus || []).map(p => `* **${p.role}** [${p.verdict} - ${p.score}%]: ${p.rationale}`).join('\n')}
+---
 
-## Key Grounded Findings
-${currentReportData.findings.map(f => `### ${f.title}\n${f.analysis}\n*Source: ${f.citations.map(c => c.source_id).join(', ')}*`).join('\n\n')}
+## Multi-Agent Consensus Board
+${activeReportData.agent_consensus.map(a => `* **${a.role}** [${a.verdict} - ${a.score}%]: ${a.rationale}`).join('\n')}
+
+---
+
+## Grounded Findings & Citations
+${activeReportData.findings.map(f => `### ${f.title}\n${f.analysis}\n\n${f.citations.map(c => `> Citation (${c.source_id}): "${c.quote}"`).join('\n')}`).join('\n\n')}
+
+---
 
 ## Strategic Recommendations
-${currentReportData.strategic_recommendations.map(r => `* ${r}`).join('\n')}
+${activeReportData.strategic_recommendations.map(r => `* ${r}`).join('\n')}
 
-## Identified Risks & Gaps
-${(currentReportData.identified_risks_or_gaps || []).map(g => `* ${g}`).join('\n')}
-  `;
+---
+
+## Identified Risks & Compliance Gaps
+${activeReportData.identified_risks_or_gaps.map(g => `* ${g}`).join('\n')}
+`;
 
   const blob = new Blob([md], { type: 'text/markdown' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `Enterprise_Research_Report_${Date.now()}.md`;
+  a.download = `intelligence_report_${Date.now()}.md`;
   a.click();
+  URL.revokeObjectURL(url);
 }
 
-window.inspectSource = function(sourceId, quote) {
-  modalRoot.innerHTML = `
-    <div class="modal-overlay" onclick="window.closeModal()">
-      <div class="modal-box" onclick="event.stopPropagation()">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <h3 style="font-size: 16px; color: var(--accent-main); font-family: var(--font-mono);">🔎 Vector Chunk Inspector</h3>
-          <button onclick="window.closeModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 18px;">✕</button>
-        </div>
-        <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 8px; font-family: var(--font-mono);">Source File: <strong style="color: var(--text-main);">${decodeURIComponent(sourceId)}</strong></div>
-        <div style="background: var(--bg-deep); border: 1px solid var(--border); padding: 14px; border-radius: 8px; font-size: 13px; line-height: 1.6; color: var(--text-main); font-family: var(--font-mono); margin-bottom: 14px;">
-          "${decodeURIComponent(quote)}"
-        </div>
-        <div style="display: flex; justify-content: space-between; font-size: 11px; font-family: var(--font-mono); color: var(--text-dim);">
-          <span>Distance Metric: Cosine</span>
-          <span style="color: var(--accent-status);">Verification: Grounded Match</span>
-        </div>
-      </div>
-    </div>
-  `;
-};
+// ==========================================================================
+// 8. Application Bootstrap
+// ==========================================================================
+document.addEventListener('DOMContentLoaded', () => {
+  initThemeEngine();
+  initDropzone();
+  initModal();
 
-window.closeModal = function() {
-  modalRoot.innerHTML = '';
-};
+  // Home buttons
+  document.getElementById('btn-home').addEventListener('click', resetToHome);
+  document.getElementById('nav-home-btn').addEventListener('click', resetToHome);
+
+  // Search & Synthesize
+  document.getElementById('btn-synthesize').addEventListener('click', runSynthesis);
+  document.getElementById('query-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') runSynthesis();
+  });
+
+  // Sidebar Preset Queries
+  document.querySelectorAll('.preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.getElementById('query-input').value = btn.dataset.query;
+      document.getElementById('industry-select').value = btn.dataset.industry;
+      runSynthesis();
+    });
+  });
+});

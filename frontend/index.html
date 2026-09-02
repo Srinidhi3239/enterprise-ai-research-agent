@@ -1,13 +1,145 @@
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Enterprise AI Research Agent</title>
-  </head>
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.js"></script>
-  </body>
+<html lang="en" data-theme="blueprint">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Enterprise AI Research Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/src/style.css" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
+</head>
+<body>
+  <div id="app">
+    <!-- Top Navigation Bar -->
+    <header class="top-nav">
+      <div class="header-left">
+        <div class="brand" id="btn-home" style="cursor: pointer;" title="Reset Dashboard View">
+          <div class="brand-icon">⚡</div>
+          <span class="brand-title">Enterprise AI Research Agent</span>
+        </div>
+        <button id="nav-home-btn" class="nav-btn" title="Reset to Home">🏠 Home</button>
+      </div>
+
+      <div class="theme-switcher">
+        <button class="theme-btn active" data-theme="blueprint">Blueprint</button>
+        <button class="theme-btn" data-theme="matrix">Matrix</button>
+        <button class="theme-btn" data-theme="amber">Amber</button>
+        <button class="theme-btn" data-theme="linear">Linear</button>
+      </div>
+    </header>
+
+    <!-- Main Workspace Layout -->
+    <div class="workspace-layout">
+      <!-- Left Sidebar -->
+      <aside class="sidebar">
+        <!-- Knowledge Base Card -->
+        <div class="sidebar-card">
+          <div class="sidebar-card-header">
+            <span class="section-tag">📁 VECTOR KNOWLEDGE BASE</span>
+          </div>
+          <div id="knowledge-base-list" class="kb-list">
+            <div class="kb-item">
+              <span class="kb-filename">company_policy.txt</span>
+              <span class="badge-status ready">Ready</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Instant Presets -->
+        <div class="sidebar-card">
+          <div class="sidebar-card-header">
+            <span class="section-tag">⚡ INSTANT RESEARCH PRESETS</span>
+          </div>
+          <div class="preset-buttons">
+            <button class="preset-btn" data-query="What are the microservices security and tenant isolation guidelines?" data-industry="Enterprise IT">
+              🔒 Microservices Security & Tenant Isolation
+            </button>
+            <button class="preset-btn" data-query="What are the database standards for pgvector and vector database indexing?" data-industry="Enterprise IT">
+              📊 Vector DB & PostgreSQL Standards
+            </button>
+            <button class="preset-btn" data-query="What are the architectural risks and regulatory compliance policies?" data-industry="Financial Operations">
+              🏗️ Architectural Risk Assessment
+            </button>
+          </div>
+        </div>
+
+        <!-- Engine Telemetry -->
+        <div class="sidebar-card telemetry-card">
+          <div class="sidebar-card-header">
+            <span class="section-tag">⚙️ ENGINE TELEMETRY</span>
+          </div>
+          <div class="telemetry-grid">
+            <div class="telemetry-row">
+              <span class="tel-label">Model:</span>
+              <span class="tel-val highlight">MiniLM-L6-v2</span>
+            </div>
+            <div class="telemetry-row">
+              <span class="tel-label">Schema:</span>
+              <span class="tel-val highlight">Pydantic Deterministic</span>
+            </div>
+            <div class="telemetry-row">
+              <span class="tel-label">Vector Engine:</span>
+              <span class="tel-val highlight">ChromaDB Local</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Center Main Content -->
+      <main class="content-area">
+        <!-- Document Upload Dropzone -->
+        <div class="dropzone" id="dropzone">
+          <input type="file" id="file-input" accept=".txt,.pdf" style="display: none;" />
+          <div class="dropzone-icon">📥</div>
+          <div class="dropzone-title">Drop enterprise documents (PDF / TXT) to vectorize</div>
+          <div class="dropzone-subtitle">Local embedding generation with zero external data leaks</div>
+        </div>
+
+        <!-- Search Bar & Controls -->
+        <div class="search-section">
+          <input 
+            type="text" 
+            id="query-input" 
+            class="search-input" 
+            placeholder="Ask a question or select a preset from the sidebar..." 
+          />
+          <select id="industry-select" class="industry-dropdown">
+            <option value="Enterprise IT">Enterprise IT</option>
+            <option value="Healthcare Systems">Healthcare Systems</option>
+            <option value="Financial Operations">Financial Operations</option>
+          </select>
+          <button id="btn-synthesize" class="btn-primary">Synthesize</button>
+        </div>
+
+        <!-- Synthesized Report Viewport (Hidden Initially) -->
+        <div id="report-container" class="report-container" style="display: none;"></div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Vector Chunk Inspector Modal -->
+  <div id="chunk-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-window">
+      <div class="modal-header">
+        <div class="modal-title">🔍 Vector Chunk Inspector</div>
+        <button id="modal-close" class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-meta-bar">
+          <div><strong>Source:</strong> <span id="modal-source">-</span></div>
+          <div><strong>Similarity Match:</strong> <span id="modal-score" class="score-badge">98.4%</span></div>
+          <div><strong>Embedding Model:</strong> <span class="highlight">all-MiniLM-L6-v2</span></div>
+        </div>
+        <div class="modal-quote-box">
+          <div class="quote-header">Raw Retrieved Vector Chunk:</div>
+          <p id="modal-quote-text">...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
 </html>
